@@ -1,6 +1,8 @@
+import com.google.gson.JsonObject;
 import io.appium.java_client.AppiumDriver;
 import org.apache.commons.cli.*;
 import org.apache.commons.collections.map.ListOrderedMap;
+import org.openqa.selenium.WebElement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import util.*;
@@ -51,10 +53,11 @@ public class Crawler {
         return isMonkey;
     }
 
-    @SuppressWarnings("unchecked")
-    public static void main(String []args) throws Exception{
-        String version = "2.24 ---DEC/12/2018";
 
+    public static void main(String[] args) throws Exception{
+        String version = "2.24 ---DEC/12/2018";
+        log.info("Version is " + version);
+        args = new String[]{"-f","config.yml","-u","6f65c4f5"};// 6f65c4f5 vivo //5e11c594 小米
         log.info("Version is " + version);
         log.info("PC platform : " +  System.getProperty("os.name"));
         log.info("System File Encoding: " + System.getProperty("file.encoding"));
@@ -155,7 +158,7 @@ public class Crawler {
 
         log.info("Crawler loop count is " + loopCount);
 
-        //根据设定的次数 开始循环遍历
+        //根据设定的次数 开始循环遍历 默认循环遍历1次
         for(int i = 0; i < loopCount; i++) {
 
             log.info("Crawler loop No is " + (i +1));
@@ -175,9 +178,6 @@ public class Crawler {
                 ConfigUtil.setActivityName(commandLine.getOptionValue('a'));
             }
 
-            if (commandLine.hasOption("b")) {
-                ConfigUtil.setBundleId(commandLine.getOptionValue('b'));
-            }
 
             if (commandLine.hasOption("c")) {
                 ConfigUtil.setClickCount(Long.valueOf(commandLine.getOptionValue('c')));
@@ -202,9 +202,6 @@ public class Crawler {
                 ConfigUtil.setPackageName(commandLine.getOptionValue('p'));
             }
 
-            if (commandLine.hasOption("n")) {
-                ConfigUtil.setIOSBundleName(commandLine.getOptionValue('n'));
-            }
 
             //下面的值会修改配置文件初始化后得到的默认值
             if (commandLine.hasOption("r")) {
@@ -215,20 +212,14 @@ public class Crawler {
                 ConfigUtil.setPort(commandLine.getOptionValue('t'));
             }
 
-            if (commandLine.hasOption("w")) {
-                ConfigUtil.setWdaPort(commandLine.getOptionValue('w'));
-            }
 
             Util.createDir(ConfigUtil.getRootDir());
 
-            AppiumDriver appiumDriver;
+            AppiumDriver appiumDriver=null;
 
             //启动Appium
             if (Util.isAndroid(udid)) {
                 appiumDriver = Driver.prepareForAppiumAndroid(ConfigUtil.getPackageName(), ConfigUtil.getActivityName(), ConfigUtil.getUdid(), ConfigUtil.getPort());
-            } else {
-                appiumDriver = Driver.prepareForAppiumIOS(ConfigUtil.getBundleId(), ConfigUtil.getUdid(), ConfigUtil.getPort(), ConfigUtil.getWdaPort());
-                Util.cleanCrashData(udid, ConfigUtil.getStringValue(ConfigUtil.IOS_IPA_NAME));
             }
 
             if (appiumDriver == null) {
@@ -241,11 +232,9 @@ public class Crawler {
 
             Runtime.getRuntime().addShutdownHook(new CtrlCHandler());
 
-            //TODO:add 左划三次
             try {
                 //等待App完全启动,否则遍历不到元素
                 Driver.sleep(15);
-
                 if (commandLine.hasOption("e") && Util.isAndroid()) {
                     PerfUtil.writeDataToFileAsync(writeToDB);
                 }
@@ -257,9 +246,9 @@ public class Crawler {
                 //初始化Xpath内容
                 XPathUtil.initialize(udid);
 
-                String pageSource = Driver.getPageSource();
 
                 if (commandLine.hasOption("m")) {
+                    String pageSource = Driver.getPageSource();
                     //开始Monkey测试
                     log.info("----------------Run in monkey mode-----------");
                     isMonkey = true;
@@ -267,6 +256,18 @@ public class Crawler {
                 } else {
                     //开始遍历UI
                     log.info("------------Run in crawler mode----------------");
+                    // 先跳转到我的淘宝
+                    WebElement myTaobao =  Driver.findElementsByAccessibilityId("我的淘宝");//("//*[@class='android.widget.FrameLayout'][5]");
+                    if(myTaobao!=null){
+                        log.info("-************************************进入个人信息");
+                        if(myTaobao.isEnabled()){
+                            myTaobao.click();
+                        }
+                    }
+                    log.info("-************************************休息10秒");
+                    Driver.sleep(10);
+                    String pageSource = Driver.getPageSource();
+                    log.info("-************************************开始遍历个人信息页");
                     XPathUtil.getNodesFromFile(pageSource, 0);
                     //Driver.getPageSource();
                     //String xpath = "//android.widget.Button[@text=\"允许\" and @scrollable=\"false\" and @resource-id=\"android:id/button1\" and @password=\"false\" and @package=\"com.lbe.security.miui\" and @long-clickable=\"false\" and @index=\"1\" and @focused=\"false\" and @focusable=\"true\" and @enabled=\"true\" and @clickable=\"true\" and @class=\"android.widget.Button\" and @checkable=\"false\"]";
@@ -391,10 +392,6 @@ public class Crawler {
         if(Util.isAndroid()){
             summaryMap.put("包名 - Package name",ConfigUtil.getPackageName());
             summaryMap.put("主活动 - Main Activity",ConfigUtil.getActivityName());
-        }else{
-            summaryMap.put("Bundle",ConfigUtil.getBundleId());
-            summaryMap.put("Bundle Name",ConfigUtil.getIOSBundleName());
-            summaryMap.put("Bundle IPA Name",ConfigUtil.getIPAName());
         }
     }
 

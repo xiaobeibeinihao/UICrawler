@@ -13,11 +13,17 @@ import java.util.*;
  * Created by Ma Yi on 2017/4/27.
  */
 public class ConfigUtil {
+    public static class GoldPage{
+       public String pageName;
+       public List<String> goldItems;
+    }
+
     public static Logger log = LoggerFactory.getLogger(ConfigUtil.class);
     private static String udid;
     private static String port;
     private static ConfigUtil configUtil;
     private static Map<String,Object> configItems;
+    private static List<GoldPage> configListItems;
     private static String rootDir;
     private static String outputDir;
     private static String serverIp = "0.0.0.0";
@@ -27,6 +33,16 @@ public class ConfigUtil {
     private static boolean generateVideo = true;
     private static boolean videoVertical = true;
     private static List<String> blackKeyList = new ArrayList<>();
+
+    /**
+     * 初始化在白名单只抓取一次的状态
+     */
+    private static List<String> caputure_onlyone_white_page = new ArrayList<>();
+
+    /**
+     * 初始化符合滚动xpath页面只抓取一次的状态
+     */
+    private static List<String> need_scrolled_xpath = new ArrayList<>();
 
     public static boolean isShowDomXML() {
         return showDomXML;
@@ -40,24 +56,24 @@ public class ConfigUtil {
     public static final String ANDROID_BOTTOM_TAB_BAR_ID = "ANDROID_BOTTOM_TAB_BAR_ID";
     public static final String ANDROID_EXCLUDE_TYPE = "ANDROID_EXCLUDE_TYPE";
     public static final String ANDROID_CLICK_XPATH_HEADER = "ANDROID_CLICK_XPATH_HEADER";
+
     public static final String IOS_EXCLUDE_BAR = "IOS_EXCLUDE_BAR";
     public static final String ANDROID_USERNAME = "ANDROID_USERNAME";
     public static final String ANDROID_PASSWORD = "ANDROID_PASSWORD";
     public static final String ANDROID_LOGIN_ELEMENTS = "LOGIN_ELEMENTS_ANDROID";
     public static final String ANDROID_BACK_KEY = "ANDROID_BACK_KEY";
     public static final String LOGIN_ELEMENTS_ANDROID = "LOGIN_ELEMENTS_ANDROID";
+    public static final String BLACK_PAGES = "black_pages";
 
-    //iOS
-    public static final String IOS_EXCLUDE_TYPE = "IOS_EXCLUDE_TYPE";
-    public static final String IOS_BOTTOM_TAB_BAR_TYPE = "IOS_BOTTOM_TAB_BAR_TYPE";
-    public static final String IOS_CLICK_XPATH_HEADER = "IOS_CLICK_XPATH_HEADER";
+    public static final String GRAY_ACTIVITY_MAX_TRAVERSE = "gray_activity_max_traverse";//灰名页面遍历的最大次数（两个页面进入循环）
+    public static final String GRAY_ACTIVITY_MAX_TRAVERSE_ITSELF = "gray_activity_max_traverse_itself";//灰名页面遍历自己遍历最大次数（单个页面进入死循环了）
 
-    public static final String IOS_LOGIN_ELEMENTS = "LOGIN_ELEMENTS_IOS";
-    public static final String IOS_IPA_NAME = "IOS_IPA_NAME";
-    public static final String IOS_WDA_PORT = "IOS_WDA_PORT";
-    public static final String IOS_BUNDLE_ID = "IOS_BUNDLE_ID";
-    public static final String IOS_BACK_KEY = "IOS_BACK_KEY";
-    public static final String IOS_BUNDLE_NAME = "IOS_BUNDLE_NAME";
+    public static final String CAN_SCROLL_PAGE_XPATH="can_scrolled_page_xpath";
+
+    public static final String CAN_SCROLL_PAGES="can_scrolled_pages";
+
+    public static final String BOUNDS_PAGE_XPATH="bound_page_xpath";
+
 
     //GENERAL CONFIG ITEM
     public static final String MAX_DEPTH = "MAX_DEPTH";
@@ -93,6 +109,9 @@ public class ConfigUtil {
     public static final String INPUT_CLASS_LIST = "INPUT_CLASS_LIST";
     public static final String INPUT_TEXT_LIST = "INPUT_TEXT_LIST";
     public static final String BACK_KEY_TRIGGER_LIST = "BACK_KEY_TRIGGER_LIST";
+
+    public static final String CAPUTURE_ONLYONE_ON_WHITEPAGE = "caputure_onlyone_on_whitePage";
+    public static final String NEED_SCROLLED_PAGE_XPATH = "need_scrolled_page_xpath";
 
     //Monkey
     public static final String SWIPE_RATIO = "SWIPE_RATIO";
@@ -156,6 +175,27 @@ public class ConfigUtil {
                     }
                 }
             }
+            List<String> goldKeyList = new ArrayList(Arrays.asList("GOLD_LIST"));
+            for(String key : goldKeyList){
+                List<Map<String,Object>> tempList = (List<Map<String,Object>>)map.get(key);
+                if(tempList != null && tempList.size()>0){
+                    for(Map<String,Object> item:tempList){
+                        Map<String,Object> tempMap = (Map<String,Object>)item;
+                        if(tempMap != null){
+                            String goldName  = (String) tempMap.get("GOLD_PAGE");
+                            List<String> goldItems = (List<String>) tempMap.get("GOLD_ITEMS");
+                            GoldPage goldPage = new GoldPage();
+                            goldPage.pageName = goldName;
+                            goldPage.goldItems = goldItems;
+                            if(configListItems==null){
+                                configListItems = new ArrayList<>();
+                            }
+                            configListItems.add(goldPage);
+                        }
+                    }
+                }
+            }
+
 
             port = getStringValue("PORT");
             clickCount = getLongValue("MAX_CLICK_COUNT");
@@ -177,7 +217,8 @@ public class ConfigUtil {
             Util.createDirs(rootDir);
 
             serverIp = getStringValue("APPIUM_SERVER_IP");
-            blackKeyList = getListValue(ITEM_BLACKLIST);
+            caputure_onlyone_white_page = getListValue(CAPUTURE_ONLYONE_ON_WHITEPAGE);
+            need_scrolled_xpath = getListValue(NEED_SCROLLED_PAGE_XPATH);
 
             log.info("rootDir is " + rootDir);
 
@@ -235,9 +276,6 @@ public class ConfigUtil {
         return getBooleanValue(REMOVE_BOTTOM_BOUND,true);
     }
 
-    public static String getIPAName(){
-        return getStringValue(IOS_IPA_NAME);
-    }
 
     public static String getRootDir(){
         return rootDir;
@@ -262,20 +300,8 @@ public class ConfigUtil {
         setStringValue("ANDROID_PACKAGE",name);
     }
 
-    public static String getIOSBundleName() {
-        return getStringValue(IOS_BUNDLE_NAME);
-    }
 
-    public static void setIOSBundleName(String name) {
-        setStringValue(IOS_BUNDLE_NAME,name);
-    }
 
-    public static String getWdaPort() {
-        return getStringValue(IOS_WDA_PORT);
-    }
-    public static void setWdaPort(String wdaPort) {
-        setStringValue(IOS_WDA_PORT,wdaPort);
-    }
 
     public static long getClickCount() {
         return clickCount;
@@ -293,18 +319,21 @@ public class ConfigUtil {
         setStringValue("ANDROID_MAIN_ACTIVITY",activityName);
     }
 
-    public static String getBundleId() {
-        return getStringValue(IOS_BUNDLE_ID);
-    }
-    public static void setBundleId(String bundleId) {
-        setStringValue(IOS_BUNDLE_ID,bundleId);
-    }
     public static void setIgnoreCrash(boolean val) {
         setBooleanValue(IGNORE_CRASH,val);
     }
 
     public static long getDepth(){
         return getLongValue(MAX_DEPTH);
+    }
+
+
+    public static int getGrayActivityMaxTraberse(){
+        return getIntValue(GRAY_ACTIVITY_MAX_TRAVERSE);
+    }
+
+    public static int getGrayActivityMaxTraberseItself(){
+        return getIntValue(GRAY_ACTIVITY_MAX_TRAVERSE_ITSELF);
     }
 
     public static void setCrawlerRunningTime(String time){
@@ -364,10 +393,15 @@ public class ConfigUtil {
     }
 
     public static long getLongValue(String key) {
+        Integer value = getIntValue(key);
+        return value == null? -100 : value.longValue();
+    }
+
+    public static int getIntValue(String key) {
         Integer value =(Integer) configItems.get(key);
         log.info("Config : " + key + " = " + value);
 
-        return value == null? -100 : value.longValue();
+        return value == null? 0 : value;
     }
 
     public static void setBooleanValue(String key, boolean val){
@@ -385,9 +419,15 @@ public class ConfigUtil {
         return getBooleanValue(key,false);
     }
 
-//    public static Map<String,Object> getMapValue(String key){
-//        Map<String,Object> map = (Map)configItems.get(key);
-//        log.info("Config : " + key + " = " + map);
-//        return map;
-//    }
+    public static List<String> getCaputureOnlyoneWhitePage() {
+        return caputure_onlyone_white_page;
+    }
+
+    public static List<String> getNeedScrolledXpath() {
+        return need_scrolled_xpath;
+    }
+
+    public static  List<GoldPage> getGoldConfigPageAndItsItems(){
+        return configListItems;
+    }
 }

@@ -40,6 +40,9 @@ public final class Driver {
     private static final int APP_START_WAIT_TIME = 20;
     private static int screenshotCount = 0;
 
+    private static int portWidth;
+    private static int portHeight;
+
     public static void startPerfRecordiOS(){
         log.info(MyLogger.getMethodName());
 
@@ -90,8 +93,6 @@ public final class Driver {
 
             if(Util.isAndroid()) {
                 Driver.prepareForAppiumAndroid(ConfigUtil.getPackageName(), ConfigUtil.getActivityName(), ConfigUtil.getUdid(), ConfigUtil.getPort());
-            }else{
-                Driver.prepareForAppiumIOS(ConfigUtil.getBundleId(), ConfigUtil.getUdid(), ConfigUtil.getPort(), ConfigUtil.getWdaPort());
             }
 
             Driver.sleep(APP_START_WAIT_TIME);
@@ -375,6 +376,34 @@ public final class Driver {
         log.info("scroll over" );
     }
 
+
+    /**
+     * 向上滑动，从某个元素的顶部中间位置开始向上滑动一段距离
+     * @param
+     */
+    public static void  scrollUp(XPathUtil.Rect rect) {
+        log.info(MyLogger.getMethodName());
+        int startX = (0 + (int)(portWidth * 0.5));
+        int startY = rect.endY;
+        int oldStartY = startY;
+        if(oldStartY > portHeight){
+            startY = portHeight-200;
+        }
+
+        int endX = startX;
+        int endY = portHeight-startY;
+        if(oldStartY < portHeight){
+            endY = startY;
+        }
+
+        log.info("scroll from : startX " +startX + ", startY "+ startY+ ", to  endX "+ endX+ ",endY "+ endY);
+        TouchAction touchAction = new TouchAction(driver);
+        PointOption pointStart = PointOption.point(startX,startY);
+        PointOption pointEnd = PointOption.point(endX,endX);
+        touchAction.press(pointStart).waitAction(WaitOptions.waitOptions(Duration.ofSeconds(1))).moveTo(pointEnd).release().perform();
+        log.info("scroll over" );
+    }
+
     /**
      * 向上滑动，从某个元素的顶部中间位置开始向上滑动一段距离
      * @param yDiff
@@ -421,6 +450,14 @@ public final class Driver {
         scrollUp(elem,(-yDiff));
     }
 
+
+    public static MobileElement findElementByXPath(String xpath){
+        try{
+            return (MobileElement) driver.findElementByXPath(xpath);
+        }catch (Exception e){
+            return null;
+        }
+    }
 
     //====================Element Finding===========================
     public static MobileElement findElement(By by,int waitSeconds){
@@ -475,19 +512,6 @@ public final class Driver {
             try{
                 list = var1.findElements(by);
 
-                //TODO: fix this for ios
-//                if(util.Util.isAndroid()) {
-//                    list = var1.findElements(by);
-//                }else {
-//
-//
-//                    String id = by.toString();//"By.id: type == 'XCUIElementTypeTextField'"
-//                    int length = id.length();
-//                    int index = id.indexOf(":");
-//                    id = id.substring(index + 2, length);
-//
-//                    list = ((IOSDriver) driver).findElementsByIosNsPredicate(id);
-//                }
             }catch (Exception e){
                 log.info("!!!!!!!!!!!!!!!!!!!!!!Element : " + by.toString() + " is not founded! Polling again...");
             }
@@ -760,6 +784,43 @@ public final class Driver {
         return elem;
     }
 
+    public static MobileElement findElementsByAccessibilityId(String content_des){
+        AppiumDriverWait wait = AppiumDriverWait.getInstance(driver,20);
+
+
+        AppiumFunction<AppiumDriver, WebElement> waitFunction = var1->{
+            WebElement elem = null;
+
+            try{
+                elem =  var1.findElementByAccessibilityId(content_des);
+            }catch (Exception e){
+                log.error("!!!!!!!!!!!!!!!!!!!!!!Element : " + content_des  + " is not founded! Polling again...");
+            }
+
+            if(null != elem){
+
+                boolean display = elem.isDisplayed();
+
+                if(!display){
+                    log.error("!!!!!!!!!!!!!!!!!!!!!!Element : " +content_des+ " is found but not displayed!");
+                    //elem = null;
+
+                    if(Util.isAndroid()) {
+                        elem = null;
+                    }
+                }else {
+                    log.info("Element " + content_des + " is found.");
+                }
+            }
+
+            return elem;
+        };
+
+        WebElement elem2 = wait.until(waitFunction);
+
+        return (MobileElement) elem2;
+
+    }
 
     //===================End of element finding methods
     public static String getTextByXpath(String xPath){
@@ -777,7 +838,6 @@ public final class Driver {
     public static String getXpathByClassID(String resId, String classId){
         return "//*[contains(@resource-id,\"" + resId + "\")]//*[contains(@class,\""+ classId +"\")]";
     }
-
 
     /**
      * 滑动到指定元素id的位置
@@ -869,11 +929,12 @@ public final class Driver {
         capabilities.setCapability("appActivity", appActivity);
         capabilities.setCapability(MobileCapabilityType.NO_RESET, true); //Don't delete app data
         capabilities.setCapability("unicodeKeyboard",true); //支持中文输入
-        capabilities.setCapability("resetKeyboard",true); //重置输入法为系统默认
+        capabilities.setCapability("resetKeyboard",false); //不 重置输入法为系统默认
 
         String url = "http://"+ ConfigUtil.getServerIp() +":" + port+"/wd/hub";
         log.info(url);
         driver = new AndroidDriver(new URL(url), capabilities);
+
         //初始化屏幕大小
         setWindowSize();
 
@@ -972,7 +1033,7 @@ public final class Driver {
     }
 
     public static void pressBack(){
-        log.info("Method : pressBack");
+        log.info("Method : 返回键");
 
         if(Util.isAndroid()){
             pressKeyCode(AndroidKey.BACK);
@@ -1010,6 +1071,7 @@ public final class Driver {
         return packageName;
     }
 
+    //获取SDK的version
     public static int getSDKVersion(String udid){
         int sdkversion = -1;
         String findCmd = Util.getGrep();
@@ -1041,6 +1103,7 @@ public final class Driver {
         return sdkversion;
     }
 
+    //通过ADB命令把android Log日志统计下来
     public static String startLogRecord(){
         String logName = ConfigUtil.getRootDir() + File.separator + ConfigUtil.getDeviceName() + "-" + Util.getDatetime() + ".log";
 
@@ -1075,6 +1138,8 @@ public final class Driver {
         }
     }
 
+
+    // 点击某个坐标
     public static void clickByCoordinate(int x, int y){
         log.info(MyLogger.getMethodName());
         log.info("X: " + x + " Y: " +y );
@@ -1090,6 +1155,8 @@ public final class Driver {
         }
     }
 
+
+    //往中间挤压
     public static void pinch(int headX, int headY, int tailX , int tailY, boolean isUnpinch){
         log.info(MyLogger.getMethodName());
 
@@ -1206,6 +1273,7 @@ public final class Driver {
         }
     }
 
+    //长按某个坐标
     public static void LongPressCoordinate(int x, int y){
         log.info("LongPressCoordinate : x :" + x + " y : " + y);
         TouchAction touchAction = new TouchAction(driver);
@@ -1242,6 +1310,7 @@ public final class Driver {
         log.info(driver.getOrientation().toString());
     }
 
+    //坐标旋转
     public static void  swipeVertical(boolean scrollDown) {
         swipeVertical(scrollDown,null);
     }
@@ -1281,6 +1350,7 @@ public final class Driver {
         }
     }
 
+    //旋转屏幕
     public static void swipeHorizontally(boolean leftToRight) {
         log.info(MyLogger.getMethodName());
 
@@ -1322,6 +1392,9 @@ public final class Driver {
         swipe(startX,startY,endX,endY);
     }
 
+    //基础方法
+    ////////////////////////////////////////////////////////
+    //按设备的某个按键
     public static void pressKeyCode(AndroidKey code){
         if(Util.isAndroid()){
             //((AndroidDriver)driver).pressKeyCode(code);
@@ -1331,6 +1404,7 @@ public final class Driver {
         }
     }
 
+    //按设备home
     public static void pressHomeKey(){
         log.info(MyLogger.getMethodName());
 
@@ -1369,5 +1443,10 @@ public final class Driver {
         Object batterInfo = Driver.driver.executeScript("mobile:batteryInfo");
         log.info("Battery Info : " + batterInfo);
         return batterInfo.toString();
+    }
+
+    public static void setViewPortScreenSize(int width,int height){
+        portWidth = width;
+        portHeight = height;
     }
 }

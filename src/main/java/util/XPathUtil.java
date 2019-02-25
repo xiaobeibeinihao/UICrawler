@@ -1,21 +1,30 @@
 package util;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import io.appium.java_client.MobileElement;
 import org.openqa.selenium.By;
 import org.slf4j.LoggerFactory;
 import org.w3c.dom.Document;
+import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
-import javax.xml.parsers.*;
-import javax.xml.xpath.*;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathFactory;
 import java.awt.*;
 import java.io.ByteArrayInputStream;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 
 public class XPathUtil {
-    public static org.slf4j.Logger log = LoggerFactory.getLogger(XPathUtil.class);
+    public static final int SLEEP_TIME = 4;//second
+    public static final int BACK_SLEEP_TIME = 2;
+    public static org.slf4j.Logger log = LoggerFactory.getLogger(XPathUtil_1_0.class);
     public static XPath xpath = XPathFactory.newInstance().newXPath();
     private static DocumentBuilderFactory builderFactory = DocumentBuilderFactory.newInstance();
 
@@ -33,6 +42,9 @@ public class XPathUtil {
     private static List<String> structureNodeNameExcludeList;
     private static List<String> pressBackPackageList;
     private static List<String> backKeyTriggerList;
+    ////////
+    private static List<String> blackPages;
+    ///////
     private static List<String> xpathNotFoundElementList = new ArrayList<>();
     private static List<String> clickFailureElementList = new ArrayList<>();
     private static String clickXpath;
@@ -45,8 +57,6 @@ public class XPathUtil {
     private static boolean ignoreCrash;
     private static boolean removedBounds = false;
     private static boolean swipeVertical = ConfigUtil.getBooleanValue(ConfigUtil.ENABLE_VERTICAL_SWIPE);
-    private static long userLoginInterval;
-    private static long userLoginCount = 0;
 
     //按back键回到主屏后 重启app的次数
     private static int pressBackCount = 3;
@@ -77,6 +87,163 @@ public class XPathUtil {
         return monkeyClickedMap;
     }
 
+
+    ////////////////////////
+    private JsonObject traverse_route = new JsonObject();//node与click_path隐射
+    private List<String> already_find_node = new ArrayList<String>();
+    private JsonObject access_root_error_record = new JsonObject();//记录没有找到某个node对应的次数
+    private Set<String> traverse_track_record = new HashSet<>();//遍历路径记录
+    private List<String> new_nodes = new ArrayList<>();
+    private Node first_root_node = null;
+    private String last_page_source = null;
+    private String current_page_source = null;
+    private JsonObject gray_activity_record = new JsonObject();//遍历过程中灰activity的遍历次数
+    private JsonObject gray_activity_record_itslef = new JsonObject();//遍历过程中灰activity自己遍历自己的遍历次数
+    private static int gray_activity_max_traverse;//灰名页面遍历的最大次数（两个页面进入循环）
+    private static int gray_activity_max_traverse_itself;//灰名页面遍历自己遍历最大次数（单个页面进入死循环了）
+    private boolean findNewNode = true;
+    //////////////////////////
+    private static LinkedHashMap<String,LinkedHashMap<String,LinkedHashMap>> node_neighbors = new LinkedHashMap<>();
+    private  Set<String> nodeVisited = new HashSet<>();
+    //记录各个页面的节点
+    private HashMap<String,List<String>> nodesData = new HashMap<>();
+
+    private HashMap<String,Rect> pageScrollFlagCache = new HashMap<>();
+    private HashMap<String,Integer> pageScrollTime = new HashMap<>();
+    private String currentPageName = "";
+    private String lastPageName = "";
+
+    private String fisrtPageName = "";
+
+    /**
+     * 初始化
+     * @param udid
+     */
+    public static void initialize(String udid){
+        log.info("Method: initialize");
+        stop = false;
+        //运行时间限制
+        runningTime = ConfigUtil.getLongValue(ConfigUtil.CRAWLER_RUNNING_TIME);
+        testStartTime = System.currentTimeMillis();
+        removedBounds = ConfigUtil.boundRemoved();
+
+
+        log.info("Running time is " + runningTime);
+
+        if(runningTime <=0){
+            runningTime = 24*6*7;
+        }
+
+        log.info("Crawler running time is " + runningTime);
+
+        //先遍历TabBar内的元素 再遍历 TabBar上的元素
+
+        //从XML中获取包名
+        if(Util.isAndroid(udid)){
+            appNameXpath = "(//*[@package!=''])[1]";
+            appName = ConfigUtil.getPackageName().trim();
+        }
+
+        packageNameList = new ArrayList<>(Arrays.asList(appName));
+
+        //添加合法包名
+        if(Util.isAndroid(udid)){
+            packageNameList.addAll(ConfigUtil.getListValue(ConfigUtil.ANDROID_VALID_PACKAGE_LIST));
+            ///
+        }else{
+            packageNameList.addAll(ConfigUtil.getListValue(ConfigUtil.IOS_VALID_BUNDLE_LIST));
+        }
+
+        //灰名页面遍历的最大次数（两个页面进入循环）
+        gray_activity_max_traverse = ConfigUtil.getGrayActivityMaxTraberse();
+        //灰名页面遍历自己遍历最大次数（单个页面进入死循环了）
+        gray_activity_max_traverse_itself = ConfigUtil.getGrayActivityMaxTraberseItself();
+
+
+        //页面黑名单 不在点击范围内
+        blackPages = ConfigUtil.getListValue(ConfigUtil.BLACK_PAGES);
+
+        //元素黑名单 不在点击范围内
+        nodeBlackList = new ArrayList<>();
+        nodeBlackList.addAll(ConfigUtil.getListValue(ConfigUtil.ITEM_BLACKLIST));
+        xpathBlackSet = getBlackKeyXpathSet(nodeBlackList);
+
+        //白名单 可以点击多次的
+        nodeWhiteList = new ArrayList<>();
+        nodeWhiteList.addAll(ConfigUtil.getListValue(ConfigUtil.ITEM_WHITE_LIST));
+
+        try{
+            builder =  builderFactory.newDocumentBuilder();
+        }catch (Exception e){
+            log.error("!!!!!!!!!!document builder is null!!!!!!!!!!");
+            e.printStackTrace();
+        }
+
+        //获取第一个登录操作元素的Xpath
+        if(Util.isAndroid(udid)){
+            loginElemList = ConfigUtil.getListMapValue(ConfigUtil.ANDROID_LOGIN_ELEMENTS);
+        }
+
+        if(loginElemList.size() != 0){
+            String key = (String)loginElemList.get(0).keySet().toArray()[0];
+            firstLoginElemXpath = (( Map<String,String>)loginElemList.get(0).get(key)).get("XPATH");
+        }
+
+        //构建查找元素时用到的Xpath
+        StringBuilder clickBuilder = new StringBuilder();
+        StringBuilder tabBuilder = null;
+
+        //Android
+        if(Util.isAndroid(udid)){
+            //构建查找tab bar的Xpath
+            String androidBottomBarID =  ConfigUtil.getStringValue(ConfigUtil.ANDROID_BOTTOM_TAB_BAR_ID);
+            clickBuilder.append("//*[");
+            clickBuilder.append(ConfigUtil.getStringValue(ConfigUtil.ANDROID_CLICK_XPATH_HEADER));//@clickable="true"
+            if(androidBottomBarID != null) {
+                //tabBuilder = new StringBuilder("//*[@resource-id=\"" + androidBottomBarID + "\"]/descendant-or-self::*[@clickable=\"true\"]");
+                tabBuilder = new StringBuilder("//*[" + androidBottomBarID +"]/descendant-or-self::*[@clickable=\"true\"]");
+                clickBuilder.append(" and not(ancestor-or-self::*[" +androidBottomBarID +"])");
+            }
+
+            //构建查找元素的xPath
+            for(String item: ConfigUtil.getListValue(ConfigUtil.ANDROID_EXCLUDE_TYPE)){
+                clickBuilder.append(" and @class!=" + "\"" + item + "\"");
+            }
+        }
+
+        clickBuilder.append("]");
+        //不需要点击的
+        clickXpath = clickBuilder.toString();
+        if(tabBuilder != null) {
+            tabBarXpath = tabBuilder.toString();
+            log.info("tab bar xpath: " + tabBarXpath);
+        }else {
+            log.info("tab bar has no xpath");
+        }
+
+        log.info("clickable elements xpath: " + clickXpath);
+
+        //Get screen scale
+        scale = Driver.getScreenScale();
+        deviceHeight = Driver.getDeviceHeight();
+        deviceWidth = Driver.getDeviceWidth();
+
+        ignoreCrash = ConfigUtil.getBooleanValue(ConfigUtil.IGNORE_CRASH);
+        //xpath中排除以下属性, 仅限android  小写字母
+        nodeNameExcludeList = ConfigUtil.getListValue(ConfigUtil.NODE_NAME_EXCLUDE_LIST);
+        //xpath中排除以下属性, android和iOS  小写字母
+        structureNodeNameExcludeList = ConfigUtil.getListValue(ConfigUtil.STRUCTURE_NODE_NAME_EXCLUDE_LIST);
+        maxDepth = ConfigUtil.getDepth();
+        pressBackPackageList = ConfigUtil.getListValue(ConfigUtil.PRESS_BACK_KEY_PACKAGE_LIST);
+
+        if(Util.isAndroid()){
+            backKeyXpath = ConfigUtil.getStringValue(ConfigUtil.ANDROID_BACK_KEY);
+        }
+
+        backKeyTriggerList = ConfigUtil.getListValue(ConfigUtil.BACK_KEY_TRIGGER_LIST);
+    }
+
+
     public static void showFailure(){
         log.info("Method: showFailure");
 
@@ -106,6 +273,9 @@ public class XPathUtil {
         log.error("\n==============================");
     }
 
+    /**
+     * monkey 测试初始化
+     */
     private static void initMonkey(){
         log.info("Method: initMonkey");
 
@@ -116,11 +286,6 @@ public class XPathUtil {
             if(ratio > 0){
                 monkeyEventRatioMap.put(event,ratio);
             }
-        }
-
-        //iOS不支持Home Key操作
-        if(!Util.isAndroid()){
-            monkeyEventRatioMap.remove(ConfigUtil.HOME_KEY_RATIO);
         }
 
         List<String> list = ConfigUtil.getListValue(ConfigUtil.MONKEY_SPECIAL_POINT_LIST);
@@ -152,6 +317,11 @@ public class XPathUtil {
         log.info("Monkey event list and ratio : \n" + monkeyEventRatioMap );
     }
 
+    /**
+     * 过滤黑元素中的xpath
+     * @param list
+     * @return
+     */
     private static Set<String> getBlackKeyXpathSet(List<String> list){
         Set<String> set = new HashSet<>();
 
@@ -165,147 +335,6 @@ public class XPathUtil {
         return set;
     }
 
-    public static void initialize(String udid){
-        log.info("Method: initialize");
-        stop = false;
-        runningTime = ConfigUtil.getLongValue(ConfigUtil.CRAWLER_RUNNING_TIME);
-        testStartTime = System.currentTimeMillis();
-        removedBounds = ConfigUtil.boundRemoved();
-        userLoginInterval = ConfigUtil.getLongValue(ConfigUtil.USER_LOGIN_INTERVVAL);
-
-        if(userLoginInterval <= 0){
-            userLoginInterval = 1;
-        }
-
-        log.info("Running time is " + runningTime);
-
-        if(runningTime <=0){
-            runningTime = 24*6*7;
-        }
-
-        log.info("Crawler running time is " + runningTime);
-
-        //先遍历TabBar内的元素 再遍历 TabBar上的元素
-
-        //从XML中获取包名
-        if(Util.isAndroid(udid)){
-            appNameXpath = "(//*[@package!=''])[1]";
-            appName = ConfigUtil.getPackageName().trim();
-        }else{
-            appNameXpath = "//*[contains(@type,\"Application\")]";
-            appName = ConfigUtil.getIOSBundleName().trim();
-        }
-
-        packageNameList = new ArrayList<>(Arrays.asList(appName));
-
-        //添加合法包名
-        if(Util.isAndroid(udid)){
-            packageNameList.addAll(ConfigUtil.getListValue(ConfigUtil.ANDROID_VALID_PACKAGE_LIST));
-        }else{
-            packageNameList.addAll(ConfigUtil.getListValue(ConfigUtil.IOS_VALID_BUNDLE_LIST));
-        }
-
-        //黑名单
-        nodeBlackList = new ArrayList<>();
-        nodeBlackList.addAll(ConfigUtil.getListValue(ConfigUtil.ITEM_BLACKLIST));
-        xpathBlackSet = getBlackKeyXpathSet(nodeBlackList);
-
-        //白名单
-        nodeWhiteList = new ArrayList<>();
-        nodeWhiteList.addAll(ConfigUtil.getListValue(ConfigUtil.ITEM_WHITE_LIST));
-
-        try{
-            builder =  builderFactory.newDocumentBuilder();
-        }catch (Exception e){
-            log.error("!!!!!!!!!!document builder is null!!!!!!!!!!");
-            e.printStackTrace();
-        }
-
-        //获取第一个登录操作元素的Xpath
-        if(Util.isAndroid(udid)){
-            loginElemList = ConfigUtil.getListMapValue(ConfigUtil.ANDROID_LOGIN_ELEMENTS);
-
-        }else{
-            loginElemList = ConfigUtil.getListMapValue(ConfigUtil.IOS_LOGIN_ELEMENTS);
-        }
-
-        if(loginElemList.size() != 0){
-            String key = (String)loginElemList.get(0).keySet().toArray()[0];
-            firstLoginElemXpath = (( Map<String,String>)loginElemList.get(0).get(key)).get("XPATH");
-        }
-
-        //构建查找元素时用到的Xpath
-        StringBuilder clickBuilder;
-        StringBuilder tabBuilder = null;
-
-        //Android
-        if(Util.isAndroid(udid)){
-            //构建查找tab bar的Xpath
-            String androidBottomBarID =  ConfigUtil.getStringValue(ConfigUtil.ANDROID_BOTTOM_TAB_BAR_ID);
-            clickBuilder = new StringBuilder("//*[");
-            clickBuilder.append(ConfigUtil.getStringValue(ConfigUtil.ANDROID_CLICK_XPATH_HEADER));//@clickable="true"
-            if(androidBottomBarID != null) {
-                //tabBuilder = new StringBuilder("//*[@resource-id=\"" + androidBottomBarID + "\"]/descendant-or-self::*[@clickable=\"true\"]");
-                tabBuilder = new StringBuilder("//*[" + androidBottomBarID +"]/descendant-or-self::*[@clickable=\"true\"]");
-                clickBuilder.append(" and not(ancestor-or-self::*[" +androidBottomBarID +"])");
-            }
-
-            //构建查找元素的xPath
-            for(String item: ConfigUtil.getListValue(ConfigUtil.ANDROID_EXCLUDE_TYPE)){
-                clickBuilder.append(" and @class!=" + "\"" + item + "\"");
-            }
-        }else{
-            //构建查找tab bar的Xpath
-            String iosBottomBarId =  ConfigUtil.getStringValue(ConfigUtil.IOS_BOTTOM_TAB_BAR_TYPE);
-            clickBuilder = new StringBuilder("//*[");
-            clickBuilder.append(ConfigUtil.getStringValue(ConfigUtil.IOS_CLICK_XPATH_HEADER));//@visible="true"
-            if(iosBottomBarId != null){
-                tabBuilder = new StringBuilder("//*[@visible=\"true\" and ancestor-or-self::" + iosBottomBarId +"]") ;
-                clickBuilder.append(" and not(ancestor-or-self::" + iosBottomBarId + ")");
-            }
-
-            //构建查找元素的xPath
-            for(String item : ConfigUtil.getListValue(ConfigUtil.IOS_EXCLUDE_BAR)){
-                clickBuilder.append(" and not(ancestor-or-self::" + item + ")");
-            }
-
-            for(String item :  ConfigUtil.getListValue(ConfigUtil.IOS_EXCLUDE_TYPE)){
-                clickBuilder.append(" and @type!=\"" + item + "\"");
-            }
-        }
-
-        clickBuilder.append("]");
-        clickXpath = clickBuilder.toString();
-        if(tabBuilder != null) {
-            tabBarXpath = tabBuilder.toString();
-            log.info("tab bar xpath: " + tabBarXpath);
-        }else {
-            log.info("tab bar has no xpath");
-        }
-
-        log.info("clickable elements xpath: " + clickXpath);
-
-        //Get screen scale
-        scale = Driver.getScreenScale();
-        deviceHeight = Driver.getDeviceHeight();
-        deviceWidth = Driver.getDeviceWidth();
-
-        ignoreCrash = ConfigUtil.getBooleanValue(ConfigUtil.IGNORE_CRASH);
-        //xpath中排除以下属性, 仅限android  小写字母
-        nodeNameExcludeList = ConfigUtil.getListValue(ConfigUtil.NODE_NAME_EXCLUDE_LIST);
-        //xpath中排除以下属性, android和iOS  小写字母
-        structureNodeNameExcludeList = ConfigUtil.getListValue(ConfigUtil.STRUCTURE_NODE_NAME_EXCLUDE_LIST);
-        maxDepth = ConfigUtil.getDepth();
-        pressBackPackageList = ConfigUtil.getListValue(ConfigUtil.PRESS_BACK_KEY_PACKAGE_LIST);
-
-        if(Util.isAndroid()){
-            backKeyXpath = ConfigUtil.getStringValue(ConfigUtil.ANDROID_BACK_KEY);
-        }else{
-            backKeyXpath = ConfigUtil.getStringValue(ConfigUtil.IOS_BACK_KEY);
-        }
-
-        backKeyTriggerList = ConfigUtil.getListValue(ConfigUtil.BACK_KEY_TRIGGER_LIST);
-    }
 
     public static PackageStatus isValidPackageName(String packageName){
         return isValidPackageName(packageName,true);
@@ -317,49 +346,13 @@ public class XPathUtil {
     //此时如果ignoreCrash=fasle, stop会被高成true，但不会重启app
     public static PackageStatus isValidPackageName(String packageName, boolean restart){
         log.info("Method: isValidPackageName");
-        PackageStatus isValid = PackageStatus.CRASHED;
+        PackageStatus isValid = PackageStatus.PRESS_BACK;
 
         //判断当前包名是否合法
         for(String name : packageNameList){
             if(null != packageName && packageName.contains(name)){
                 isValid = PackageStatus.VALID;
                 break;
-            }
-        }
-
-        stop = false;
-
-        //包名不合法检查app是否Crash
-        if(isValid != PackageStatus.VALID){
-            log.error("----------!!!!!!!!!!not valid package name : " + packageName);
-
-            Driver.takeScreenShot();
-
-            String processName = appName;
-            if(!Util.isAndroid()){
-                processName = ConfigUtil.getStringValue(ConfigUtil.IOS_IPA_NAME);
-            }
-
-            //程序未crash时 说明只是跳出了当前app 把isValid设成true,重启app即可
-            if(Util.isProcessExist(ConfigUtil.getUdid(),processName)){
-                isValid = PackageStatus.APP_RESTART;
-                if(pressBackPackageList.contains(packageName)){
-                    isValid = PackageStatus.PRESS_BACK;
-                    log.info("Package name :" + packageName + "is in pressBackList, so press back key");
-                    Driver.takesScreenShotAndPressBack(repoStep);
-                }
-            }else{
-                //程序crash了，如果ignoreCrash为true,则重启app继续遍历
-                stop = !ignoreCrash;
-                isValid = PackageStatus.CRASHED;
-                Util.renameAndCopyCrashFile(pic);
-                Driver.takeScreenShot();
-                log.error("===================app crashed!!!");
-            }
-
-            if((isValid == PackageStatus.APP_RESTART || !stop) && restart) {
-                //relaunch后 要把CurrentXml 设成getPageSource
-                Driver.appRelaunch(repoStep);
             }
         }
 
@@ -405,7 +398,7 @@ public class XPathUtil {
             log.info("------------------------CLICK " + clickCount + "  X: " + x + " Y: " + y +" --------------------------");
 
             //等待新UI初始化 时间需要
-            Driver.sleep(1);
+            Driver.sleep(SLEEP_TIME);
             page = Driver.getPageSource();
             String appName = getAppName(page);
 
@@ -414,53 +407,9 @@ public class XPathUtil {
             if(PackageStatus.VALID != status){
                 page = Driver.getPageSource();
             }
-
-            if(clickCount >= ConfigUtil.getClickCount()){
-                stop = true;
-            }
-
-            String temp ="";
-
-            try{
-                String elemStr = elem.toString();
-                List<String> inputClassList = ConfigUtil.getListValue(ConfigUtil.INPUT_CLASS_LIST);
-                List<String> inputTextList = ConfigUtil.getListValue(ConfigUtil.INPUT_TEXT_LIST);
-                int size = inputClassList.size();
-
-                for(String elemClass : inputClassList){
-                    temp = elemClass;
-                    if(elemStr.contains(elemClass)){
-                        int index = Util.internalNextInt(0,size);
-                        String text = inputTextList.get(index);
-                        elem.setValue(text );
-                        repoStep.append("INPUT :" + elem.toString() + " ; " + text + "\n");
-                        log.info("Element " + temp + " set text : " + text);
-                        break;
-                    }
-                }
-            }catch (Exception e){
-                log.error("fail to set text for class : " + temp);
-            }
-
         }catch (Exception e){
             e.printStackTrace();
             log.error("\n!!!!!!Fail to click elem : " + elem);
-
-            if(!Util.isAndroid()){
-                //iOS中 app发生crash时 不能调用getPageSource 否则WDA会返回错误
-                if(!Util.isProcessExist(ConfigUtil.getUdid(),ConfigUtil.getStringValue(ConfigUtil.IOS_IPA_NAME))){
-                    Util.renameAndCopyCrashFile(pic);
-                    stop = !ignoreCrash;
-                    page = xml;
-
-                    if(ignoreCrash){
-                        Driver.appRelaunch();
-                        page = Driver.getPageSource();
-                    }
-                }
-            }else{
-                page = Driver.getPageSource();
-            }
         }
 
         return  page;
@@ -499,19 +448,6 @@ public class XPathUtil {
 
         log.info("Context: " + Driver.driver.getContextHandles().toString());
 
-        try {
-            if( 0 == userLoginCount % userLoginInterval) {
-                log.info("Processing login operation");
-                xml = userLogin(xml);
-            }
-        }catch (Exception e){
-            e.printStackTrace();
-            log.error("Fail to log in!");
-        }
-
-        log.info("userLoginCount is " + userLoginCount);
-        userLoginCount ++;
-
         //检查运行时间
         long endTime = System.currentTimeMillis();
 
@@ -547,13 +483,15 @@ public class XPathUtil {
                     log.info("Back key trigger : " + key + " is found, press back key");
                     Driver.takeScreenShot();
                     Driver.pressBack(repoStep);
+                    Driver.sleep(BACK_SLEEP_TIME);
+                    //cky 上传当前黄金页面
                     currentXML = Driver.getPageSource();
                     return currentXML;
                 }
             }
         }
 
-        //遍历前检查
+        //遍历前检查 如果不是小程序的话不用关心
         // 1.包名是否合法，包名不合法，不会重启
         // 2.检查Depth,超过预定值就返回
         // 3.是否有可遍历的元素,如果没有遍历TabBar,如果无TabBar
@@ -621,7 +559,7 @@ public class XPathUtil {
                 }
             }
 
-            //Comment this if not in test mode
+            //Comment this if not in GraphLoopTest mode
             //nodeXpath = showNodes(currentXML,nodeXpath);
 
             //判断当前元素是否点击过
@@ -818,14 +756,14 @@ public class XPathUtil {
         }
 
         if(null == nodeList || nodeList.getLength() == 0){
-           log.error("null app name get from xml file");
+            log.error("null app name get from xml file");
 
-           if(!Util.isAndroid()){
-               //TODO:有时iOS中没有XCUIAPPLICATION
-               name = ConfigUtil.getStringValue("IOS_BUNDLE_NAME");
-           }
+            if(!Util.isAndroid()){
+                //TODO:有时iOS中没有XCUIAPPLICATION
+                name = ConfigUtil.getStringValue("IOS_BUNDLE_NAME");
+            }
 
-           return name;
+            return name;
         }
 
         Node node = nodeList.item(0);
@@ -838,15 +776,6 @@ public class XPathUtil {
         }
 
         name = node.getAttributes().getNamedItem(key).getNodeValue();
-
-        //iOS处理 alert
-        if(!Util.isAndroid()){
-            log.info("Check if there is any alert in iOS");
-            if(xml.contains("XCUIElementTypeAlert") && "".equals(name.trim())){
-                log.info("Alert found! Set package name to app name");
-                name = ConfigUtil.getIOSBundleName();
-            }
-        }
 
         log.info("-------AppName---------" + name);
         return name;
@@ -931,12 +860,21 @@ public class XPathUtil {
         return ret;
     }
 
+    /**
+     * 获取单个Node的 xpath
+     * @param node
+     * @return
+     */
     private static String getNodeXpath(Node node){
         return getNodeXpath(node,false);
     }
 
+
+    //分析当前节点 根据节点属性来分析
     public static String getNodeXpath(Node node, boolean structureOnly){
+        //当前节点的属性
         int length = node.getAttributes().getLength();
+        //设置xpath 并获取当前节点的name
         StringBuilder nodeXpath = new StringBuilder("//" + node.getNodeName() + "[");
         //xpath中排除以下属性, 仅限android  小写字母
         //final List<String> nodeNameExcludeList = new ArrayList<>(Arrays.asList("selected","instance","checked","naf","content-desc"));
@@ -1014,23 +952,6 @@ public class XPathUtil {
                 int tolerance = 5;
                 if(Math.abs(endX - startX) < tolerance || Math.abs(endY - startY) < tolerance){
                     log.info("Removed due to exceed tolerance : " + tolerance + " StartX: " + String.valueOf(startX) + " StartY: "  + String.valueOf(startY) + " EndX: " + String.valueOf(endX) + "EndY: " + String.valueOf(endY));
-                    return null;
-                }
-            }
-
-            //元素显示在界面范围内 iOS only  一般情况下若元素不在屏幕可见范围内 visible=false 所以以下代码可注释掉
-            if(!Util.isAndroid() && nodeName.equals("x")){
-                int x = Integer.valueOf(nodeValue);
-                if(x > deviceWidth){
-                    log.info(x +">max ----Removed-----");
-                    return null;
-                }
-            }
-
-            if(!Util.isAndroid() && nodeName.equals("y")){
-                int y = Integer.valueOf(nodeValue);
-                if( y > deviceHeight){
-                    log.info(y + ">max ----Removed-----");
                     return null;
                 }
             }
@@ -1202,7 +1123,7 @@ public class XPathUtil {
         longPressPointList.add(new Point(centerX, centerY));
         log.info("Center X " + centerX + " Center Y " + centerY);
 
-        Driver.sleep(5);
+        Driver.sleep(SLEEP_TIME);
 
         ArrayList<String> ratioList = initEventMap();
 
@@ -1410,18 +1331,6 @@ public class XPathUtil {
         }
     }
 
-//    public static void test(){
-//        Driver.sleep(10);
-//        scale = 3;
-//        int step = 10;
-//        int v = 30;
-//        for(int i=0; i< 3; i++) {
-//            Driver.clickByCoordinate(v,v);
-//            PictureUtil.takeAndModifyScreenShotAsyn(v * scale, v * scale);
-//            v = v+ step;
-//        }
-//    }
-
     public static StringBuilder getRepoStep(){
         return repoStep;
     }
@@ -1446,6 +1355,738 @@ public class XPathUtil {
 
         log.info("!!!!! " + temp);
         return temp;
+    }
+
+    ///////////////////////////////////////////
+
+    /**
+     * 深度优先遍历算法
+     * @param node
+     */
+    public void dfs(String node){
+        if(null==node){
+            log.error("node 为空");
+            return;
+        }
+        //检查运行时间
+        long endTime = System.currentTimeMillis();
+        if((endTime - testStartTime) > ( runningTime * 60 * 1000)) {
+            log.info("已运行" + (endTime - testStartTime)/60/1000 + "分钟，任务即将结束");
+            stop = true;
+            return ;
+        }
+        String clickPath = traverse_route.get(node).getAsString();
+        log.info("the element path will click is : " + clickPath);
+        String[] clickStep = clickPath.split("--->");
+
+        if(clickStep.length>maxDepth){
+            log.info("停止，已经到达的层级为 " + clickPath);
+            findNewNode  = false;
+        }else{
+            findNewNode  = true;
+        }
+        if(findNewNode){
+            //node 点击这个node com.xsj.activityname###xpath
+            String[] pageNameAndXpath = node.split("###");
+            //String pageName = pageNameAndXpath[0];
+
+            String xpath = pageNameAndXpath[1];
+            MobileElement elem = Driver.findElementByXPath(xpath);
+            //记录遍历过的路径
+            traverse_track_record.add(clickPath);
+            nodeVisited.add(node);
+            if(null == elem){
+                //继续遍历
+                log.info("---------Node not found in current UI!!!!!!! Stop current iteration.-----------" );
+                recursion(node);
+            }else{
+                last_page_source  = current_page_source;
+                current_page_source = clickElement(elem,current_page_source);
+                // 页面没有变化，currentPageName 没有变化
+                if(current_page_source.equals(last_page_source)){
+                    //说明点击无效 继续遍历
+                    recursion(node);
+                }else{
+                    //新的页面
+                    newPageDeal(node,false);
+                }
+            }
+        }
+    }
+
+    private void recursion(String node){
+        List<String> nodesKey = getNodeData(currentPageName);
+        Iterator<String> iterator = nodesKey.iterator();
+        while (iterator.hasNext()){
+            String nodeStr = iterator.next();
+            if(!nodeVisited.contains(nodeStr)){
+                dfs(nodeStr);
+                return;
+            }
+        }
+
+        //如果当前页面没有了，就看看是否可以滚动
+        Rect rect = getPageScrollFlg(currentPageName);
+        if(rect==null){//不可以滚动
+            doBackDFS(node);
+        }else{//可以滚动
+            if(pageScrollTime.containsKey(currentPageName)){
+                int count = pageScrollTime.get(currentPageName);
+                if(count>=3){
+                    removeScrollFlag(currentPageName);
+                    //当前页面没有了，就返回继续迭代上一个页面的元素
+                    doBackDFS(node);
+                    return;
+                }else{
+                    pageScrollTime.put(currentPageName,count+1);
+                }
+            }else{
+                pageScrollTime.put(currentPageName,1);
+            }
+            // decreaseGrayActivityCount(currentPageName);
+            scrollToBottom(rect);
+            lastPageName = currentPageName;
+            currentPageName = Driver.getCurrentActivity();
+            last_page_source = current_page_source;
+            current_page_source =  Driver.getPageSource();
+            if(last_page_source.equals(current_page_source)){
+                removeScrollFlag(currentPageName);
+                //当前页面没有了，就返回继续迭代上一个页面的元素
+                doBackDFS(node);
+            }else{// 页面不一样
+                newPageDeal(node,true);
+            }
+        }
+    }
+
+    private void newPageDeal(String node,boolean scrolled){
+        //新的页面
+        new_nodes = findAllClickables(lastPageName,scrolled);
+
+        if(new_nodes!=null && new_nodes.size()>0){
+
+            for(String newNode : new_nodes){
+                // #记录其轨迹类似于1--->2--->3
+                addTraverseRoute(newNode,getTraverseRoute(node)+"--->"+newNode);
+                addAlreadyFindNode(newNode);
+
+                addEdge(node,newNode);
+            }
+            //记录完后进行遍历
+            addNodesData(getCurrentPageName(),new_nodes);
+            dfs(new_nodes.get(0));
+        }else{
+            //当前页面没有可点击的元素继续遍历
+            Rect rect = getPageScrollFlg(currentPageName);
+            if(rect==null){//不可以滚动
+                doBackDFS(node);
+            }else{//可以滚动
+                if(pageScrollTime.containsKey(currentPageName)){
+                    int count = pageScrollTime.get(currentPageName);
+                    if(count>=3){
+                        removeScrollFlag(currentPageName);
+                        //当前页面没有了，就返回继续迭代上一个页面的元素
+                        doBackDFS(node);
+                        return;
+                    }else{
+                        pageScrollTime.put(currentPageName,count+1);
+                    }
+                }else{
+                    pageScrollTime.put(currentPageName,1);
+                }
+               // decreaseGrayActivityCount(currentPageName);
+                scrollToBottom(rect);
+                lastPageName = currentPageName;
+                currentPageName = Driver.getCurrentActivity();
+                last_page_source = current_page_source;
+                current_page_source =  Driver.getPageSource();
+                if(last_page_source.equals(current_page_source)){
+                    removeScrollFlag(currentPageName);
+                    //当前页面没有了，就返回继续迭代上一个页面的元素
+                    doBackDFS(node);
+                }else{// 页面不一样
+                    newPageDeal(node,true);
+                }
+            }
+        }
+    }
+
+
+    private void doBackDFS(String node){
+
+        Driver.pressBack();
+        Driver.sleep(BACK_SLEEP_TIME);
+        lastPageName = currentPageName;
+        currentPageName = Driver.getCurrentActivity();
+        last_page_source = current_page_source;
+        current_page_source =  Driver.getPageSource();
+        List<String> nodesKey = getNodeData(currentPageName);
+        if(nodesKey==null){
+            //cky 如果没有的话怎么处理
+            return;
+        }
+        Iterator<String> iterator = nodesKey.iterator();
+        while (iterator.hasNext()){
+            String nodeStr = iterator.next();
+            if(!nodeVisited.contains(nodeStr)){
+                dfs(nodeStr);
+                return;
+            }
+        }
+        //返回 后，依然没有可遍历的node了，就滚动
+        Rect rect = getPageScrollFlg(currentPageName);
+        if(rect==null){//不可以滚动
+            doBackDFS(node);
+        }else{//可以滚动
+            scrollToBottom(rect);
+            lastPageName = currentPageName;
+            currentPageName = Driver.getCurrentActivity();
+            last_page_source = current_page_source;
+            current_page_source =  Driver.getPageSource();
+            if(last_page_source.equals(current_page_source)){
+                removeScrollFlag(currentPageName);
+                //当前页面没有了，就返回继续迭代上一个页面的元素
+                if(currentPageName.equals(fisrtPageName)){
+                    return;
+                }else{
+                    doBackDFS(node);
+                }
+            }else{// 页面不一样
+                newPageDeal(node,true);
+            }
+        }
+    }
+
+    public void setFirstPageName(){
+        fisrtPageName = Driver.getCurrentActivity();
+
+        Driver.setViewPortScreenSize(Driver.getDeviceWidth(),Driver.getDeviceHeight()-200);
+    }
+
+    /**
+     * 找出该页面的所有可用节点 com.arong.activityname###.//[@]
+     *
+     *
+     * @param activityNameBeforeClickName 跟节点传 ""
+     * @return
+     */
+    public List<String> findAllClickables(String activityNameBeforeClickName,boolean scrooled){
+        String activityNameBeforeClick = activityNameBeforeClickName;
+        String pageContent = Driver.getPageSource();
+        current_page_source = pageContent;
+        String packageName=getAppName(pageContent);
+        String activityIdentification = Driver.getCurrentActivity();
+        lastPageName = currentPageName;
+        currentPageName = activityIdentification;
+        List<String> node_on_activity = new ArrayList<>();
+        List<String> node_on_activity_temp = new ArrayList<>();
+
+        /////////////////////////////////1、页面级过滤
+        if(pageContent==null){
+            log.info(activityIdentification+"当前页面内容获取为空");
+            return null;
+        }
+        //进入到其他APP的页面了
+        if (PackageStatus.VALID != isValidPackageName(packageName, ignoreCrash)) {
+            log.info("进入到了"+packageName+"应用");
+            int deepth = 1;
+            //如果深度>0的话就返回
+            if(deepth>0){
+                log.info("进入到了"+packageName+"应用"+activityIdentification+"--->返回");
+                Driver.takeScreenShot();
+                String processName = appName;
+                //程序未crash时 说明只是跳出了当前app 把isValid设成true,返回
+                if(Util.isProcessExist(ConfigUtil.getUdid(),processName)){
+                    Driver.takesScreenShotAndPressBack(repoStep);
+                    Driver.sleep(BACK_SLEEP_TIME);
+                    lastPageName = currentPageName;
+                    currentPageName = Driver.getCurrentActivity();
+                    last_page_source = current_page_source;
+                    current_page_source =  Driver.getPageSource();
+                }else{
+                    //程序crash了，如果ignoreCrash为true,则重启app继续遍历
+                    stop = !ignoreCrash;
+                    Util.renameAndCopyCrashFile(pic);
+                    Driver.takeScreenShot();
+                    log.error("===================app crashed!!!");
+                }
+                return  null;
+            }else{
+                log.info("进入到了"+packageName+"应用"+activityIdentification+"--->退出");
+                //退出
+                stop = true;
+            }
+        }else if(judgeBlackActivity(pageContent,activityIdentification)){
+            log.info(activityIdentification+"在黑名单中"+"--->返回");
+            //Driver.pressBack();
+            return  null;
+        }else if(judgeGrayActivity(activityNameBeforeClick,activityIdentification,scrooled)){
+            log.info(activityIdentification+"在灰名单中"+"--->返回");
+            return  null;
+        }
+
+        //根据关键字触发Back Key
+        if( (backKeyTriggerList != null)  && (backKeyTriggerList.size() > 0) ){
+            for(String key : backKeyTriggerList){
+                if (pageContent.contains(key) && !"".equals(activityNameBeforeClick)){
+                    Driver.takeScreenShot();
+                    Driver.sleep(BACK_SLEEP_TIME);
+                    //cky 上传当前黄金页面
+                    return null;
+                }
+            }
+        }
+
+        current_page_source = pageContent;
+        if(current_page_source.equals(last_page_source)){
+            log.info(activityIdentification+"页面没有发生变化");
+            return null;
+        }
+
+        /////////////////////////////////2、元素级过滤
+        try {
+            node_on_activity_temp = getNodesFromFile(pageContent,activityIdentification);
+            if(node_on_activity_temp==null){
+                node_on_activity =  node_on_activity_temp;
+            }else{
+                //过滤黄金page的黄金item
+                if(ConfigUtil.getGoldConfigPageAndItsItems()!=null  &&  ConfigUtil.getGoldConfigPageAndItsItems().size()>0){
+                    for(ConfigUtil.GoldPage goldPage:ConfigUtil.getGoldConfigPageAndItsItems()){
+                        if(current_page_source.contains(goldPage.pageName)){
+                            for(String nodeStr:node_on_activity_temp){
+                                if(goldPage.goldItems!=null){
+                                    for(String goldItem : goldPage.goldItems){
+                                        if(nodeStr.contains(goldItem)){
+                                            node_on_activity.add(nodeStr);
+                                        }
+                                    }
+                                }else{
+                                    node_on_activity =  node_on_activity_temp;
+                                }
+                            }
+                        }else{
+                            node_on_activity =  node_on_activity_temp;
+                        }
+                    }
+                }else{
+                    node_on_activity =  node_on_activity_temp;
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        //如果有可点击的元素并且可点击元素的个数 超过2个，就去判断该页面是否可滑动,不做其他判断处理
+        if(getPageScrollFlg(currentPageName) == null){
+            try{
+                if(node_on_activity!=null && node_on_activity.size()>2){
+                    Document document = builder.parse(new ByteArrayInputStream(pageContent.getBytes()));
+                    NodeList nodes = (NodeList) xpath.evaluate(ConfigUtil.getStringValue(ConfigUtil.CAN_SCROLL_PAGE_XPATH), document, XPathConstants.NODESET);
+                    int length = nodes.getLength();
+                    if(length>0){//第一个滚动的元素就是最外层的滚动，我们只关心最外层滚动
+                        Node scrollNode = nodes.item(0);
+                        NamedNodeMap attributes = scrollNode.getAttributes();
+                        int lengthAttr = attributes.getLength();
+                        for(int i=0;i<lengthAttr;i++){
+                            Node tmpNode = attributes.item(i);
+                            String nodeName = tmpNode.getNodeName();
+                            String nodeValue = tmpNode.getNodeValue();
+                            if(nodeName.contains("bounds")){
+                                String value = nodeValue;
+                                value =value.replace("][",",");//"[1080,468,2160,885]";
+
+                                int index = value.indexOf(",");
+                                int startX = Integer.valueOf(value.substring(1,index));
+
+                                int indexNext = value.indexOf(",",index+1);
+                                int startY = Integer.valueOf(value.substring(index+1,indexNext));
+
+                                index = value.indexOf(",",indexNext + 1);
+                                int endX = Integer.valueOf(value.substring(indexNext +1,index));
+                                int endY = Integer.valueOf(value.substring(index +1,value.length()-1));
+
+                                if(endY<startY){
+                                    int tmp = startY;
+                                    startY = endY;
+                                    endY = tmp;
+                                }
+                                Rect scrollRect = new Rect(startX,startY,endX,endY);
+                                setPageScrollFlag(currentPageName,scrollRect);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }catch (Exception e){
+                e.printStackTrace();
+            }
+        }
+
+        // 如果是同一个页面的nodes 过滤掉已经访问过的
+        if(activityNameBeforeClick.equals(currentPageName) && (node_on_activity!=null && node_on_activity.size()>0 )){
+           List<String> nodes =  getNodeData(currentPageName);
+           List<String> tempContainsNode = new ArrayList<>();
+           if(nodes!=null && nodes.size()>0  ){
+               for(int i=0;i<nodes.size();i++){
+                    for(int j=0;j<node_on_activity.size();j++){
+                        if(nodes.get(i).equals(node_on_activity.get(j))){
+                            tempContainsNode.add(nodes.get(i));
+                        }
+                    }
+               }
+           }
+           if(tempContainsNode.size()>0){
+               node_on_activity.removeAll(tempContainsNode);
+           }
+        }
+
+        return  node_on_activity;
+    }
+
+
+    /**
+     * 获取当前页面的所有合法节点Node
+     * @param xml
+     * @return
+     * @throws Exception
+     */
+    public static List<String> getNodesFromFile(String xml,String pageName) throws Exception {
+        ArrayList<String> nodeXpaths = new ArrayList<>();
+        NodeList nodes = null;
+        String activityIdentification = Driver.getCurrentActivity();
+        log.info("Method: getNodesFromFile");
+
+        log.info("Context: " + Driver.driver.getContextHandles().toString());
+
+        //检查运行时间
+        long endTime = System.currentTimeMillis();
+
+        if ((endTime - testStartTime) > (runningTime * 60 * 1000)) {
+            log.info("已运行" + (endTime - testStartTime) / 60 / 1000 + "分钟，任务即将结束");
+            stop = true;
+            return null;
+        }
+
+        Document document = builder.parse(new ByteArrayInputStream(xml.getBytes()));
+        //ANDROID_CLICK_XPATH_HEADER 根据' ( string-length(@text)<10  or contains(@text,"允许") ) ' 配置来获取所有合法的elemtns
+        nodes = (NodeList) xpath.evaluate(clickXpath, document, XPathConstants.NODESET);
+
+        log.info(String.valueOf("UI nodes length : " + nodes.getLength()));
+
+        int length = nodes.getLength();
+
+        if (length == 0) {
+            log.error("当前" + activityIdentification + "没有可点击的元素");
+            return null;
+        }
+        String currentXML = xml;
+
+        //检查stop为true时快速退出
+        if (stop) {
+            log.info("-----stop=true, Fast exit");
+            return null;
+        }
+
+        log.info("Back key list size is " + backKeyTriggerList.size());
+
+        //根据关键字触发Back Key
+        if ((backKeyTriggerList != null) && (backKeyTriggerList.size() > 0)) {
+            for (String key : backKeyTriggerList) {
+                if (currentXML.contains(key)) {
+                    log.info("Back key trigger : " + key + " is found, press back key");
+                    Driver.takeScreenShot();
+                    //cky 此处是不是应该记录下来？ 截图或者源xml
+                    return null;
+                }
+            }
+        }
+
+        //遍历前检查 如果不是小程序的话不用关心
+        // 1.包名是否合法，包名不合法，不会重启
+        // 2.检查Depth,超过预定值就返回
+        // 3.是否有可遍历的元素,如果没有遍历TabBar,如果无TabBar
+        String packageName = getAppName(currentXML);
+
+        if (packageName.equals("com.tencent.mm") || packageName.equals("com.tencent.xin")) {
+            if (currentXML.contains("附近的小程序")) {
+                log.info("已遍历完小程序，跳转到了小程序主页面，遍历停止");
+                stop = true;
+                //cky 此处是不是应该记录下来？ 截图或者源xml
+                return null;
+            }
+        }
+        //////////////////////////////
+
+        log.info("++++++++++++++++++ Activity Name : " + Driver.getCurrentActivity() + "+++++++++++++++++++++++");
+
+        //1.检查当前UI的包名是否正确，一定要先查包名！因为其内部控制了stop的值, 包名不合法，-是否应该重启app?--
+        if (PackageStatus.VALID != isValidPackageName(packageName, true)) {
+            log.info("=====================package: " + packageName + " is invalid, return ....==============================");
+            currentXML = Driver.getPageSource();
+            return null;
+        }
+
+        //处理黑名单xpath
+        nodeXpathBlackSet = getBlackNodeXpathSet(document);
+        int blackNodeXpathSize = nodeXpathBlackSet.size();
+        log.info("black node Xpath size is " + blackNodeXpathSize);
+
+        //遍历UI内的Node元素
+        while (--length >= 0 && !stop) {
+            log.info("Element index is : " + length);
+
+            Node tmpNode = nodes.item(length);
+            String nodeXpath = getNodeXpath(tmpNode);
+
+            if (nodeXpath == null) {
+                log.error("Null nodeXpath , continue.");
+                continue;
+            }
+
+            if (blackNodeXpathSize != 0) {
+                if (nodeXpathBlackSet.contains(nodeXpath)) {
+                    log.info("Ignore black xpath item : " + nodeXpath);
+                    continue;
+                }
+            }
+
+            log.info("========================================Complete iterating current UI with following elements: ");
+            //log.info( "\n\n\n" + previousPageStructure + "\n\n\n");
+            //log.info("depth before return is " + currentDepth);
+            nodeXpaths.add(pageName+"###"+nodeXpath);
+        }
+        return nodeXpaths;
+    }
+
+
+    /**
+     * 添加节点 只在第一个页面的时候添加
+     * @param nodeList
+     */
+    public void add_nodes(List<String> nodeList){
+        if(nodeList==null){
+            log.error("nodeList 为空");
+            return;
+        }
+
+        if(node_neighbors==null){
+            log.error("node_neighbors 为空");
+            return;
+        }
+
+        for(String nodeXpath:nodeList){
+            if(!nodes().contains(nodeXpath)){
+                node_neighbors.put(nodeXpath,new LinkedHashMap<String,LinkedHashMap>());
+            }
+        }
+    }
+
+    /**
+     * 节点集合
+     * @return
+     */
+    public Set<String> nodes(){
+        if(node_neighbors!=null){
+            return node_neighbors.keySet();
+        }
+        return null;
+    }
+
+    /**
+     * 判断该页面是否在黑名单中
+     * @param pageContent
+     * @param pageActivity
+     * @return
+     */
+    public boolean judgeBlackActivity(String pageContent,String pageActivity){
+        if(null == pageContent && pageActivity == pageActivity){
+            return false;
+        }
+        if(blackPages==null || blackPages.size()==0){
+            return false;
+        }
+
+        for(String oneBlackPage:blackPages){
+            if(pageActivity.toLowerCase().contains(oneBlackPage.toLowerCase())){
+                return true;
+            }
+        }
+
+
+        for(String oneBlackPage:blackPages){
+            if(pageContent.toLowerCase().contains(oneBlackPage.toLowerCase())){
+                return true;
+            }
+        }
+
+        return  false;
+    }
+
+    /**
+     * 判断是正在迭代中的页面吗
+     * @param activityBeforeClick 之前的activityName
+     * @param activityIdentification 当前的acitivityName
+     * @return
+     */
+    public boolean judgeGrayActivity(String activityBeforeClick,String activityIdentification,boolean scrooled){
+        if(activityBeforeClick==null && activityIdentification == null){
+            log.error("judgeGrayActivity方法传入的参数有误");
+            return false;
+        }
+        //如果灰名单activity在点击之前与点击之后相同,应该是在同一页面点击的结果
+        if(!activityBeforeClick.equals(activityIdentification)){
+            if(!gray_activity_record.has(activityIdentification)){
+                gray_activity_record.addProperty(activityIdentification,1);
+            }else{
+                gray_activity_record.addProperty(activityIdentification,gray_activity_record.get(activityIdentification).getAsInt()+1);
+            }
+            int browseCount = gray_activity_record.get(activityIdentification).getAsInt();
+            if(browseCount > gray_activity_max_traverse){
+                log.warn(String.format("当前灰名单activity:%s为已经寻找过%s次跳过寻找新的node...",activityIdentification, gray_activity_max_traverse));
+                return true;
+            }
+        }else{
+            //如果灰名单activity在点击之前与点击之后相同,应该是在同一页面点击的结果
+
+            if(scrooled){
+                return false;
+            }else{
+                if(!gray_activity_record_itslef.has(activityIdentification)){
+                    gray_activity_record_itslef.addProperty(activityIdentification,1);
+                }else{
+                    gray_activity_record_itslef.addProperty(activityIdentification,gray_activity_record_itslef.get(activityIdentification).getAsInt()+1);
+                }
+                int browseSelfCount = gray_activity_record_itslef.get(activityIdentification).getAsInt();
+                if(browseSelfCount > gray_activity_max_traverse_itself){
+                    log.warn(String.format("当前灰名单activity:%s在自身activity已经寻找过%s次跳过寻找新的node...",activityIdentification, gray_activity_max_traverse_itself));
+                    return true;
+                }
+            }
+
+        }
+
+        return  false;
+    }
+
+
+    /**
+     * 添加 遍历数据结构
+     * @param rootNode
+     * @param newNode
+     */
+    public void addEdge(String rootNode,String newNode){
+        LinkedHashMap<String,LinkedHashMap> neighbors = node_neighbors.get(rootNode);
+        if(neighbors!=null){
+            if(!neighbors.containsKey(newNode)){
+                neighbors.put(newNode,new LinkedHashMap());
+            }
+        }
+    }
+
+
+    /**
+     * 记录所有的页面名称对应的pageNode
+     * @param activityName
+     * @param pageNodes
+     */
+    public void addNodesData(String activityName,List<String> pageNodes){
+        if(activityName==null){
+            return ;
+        }
+        nodesData.put(activityName,pageNodes);
+    }
+
+    public List<String> getNodeData(String activityName){
+        if(activityName == null){
+            return  null;
+        }
+        return  nodesData.get(activityName);
+    }
+    ///////////////
+
+    public String getCurrentPageName(){
+        return currentPageName;
+    }
+
+
+    public void addTraverseRoute(String node,String nodePath){
+        traverse_route.addProperty(node,nodePath);
+    }
+
+    public String getTraverseRoute(String nodeStr){
+        if(nodeStr==null){
+            return nodeStr+"无记录";
+        }
+        JsonElement router =  traverse_route.get(nodeStr);
+        if(router!=null){
+            return router.getAsString();
+        }else{
+            return nodeStr+"无记录";
+        }
+    }
+
+    public void addAlreadyFindNode(String nodeStr){
+        already_find_node.add(nodeStr);
+    }
+
+
+    public void decreaseGrayActivityCount(String activityIdentification){
+        if(gray_activity_record.has(activityIdentification)){
+            int browseCount = gray_activity_record.get(activityIdentification).getAsInt();
+            if(browseCount > gray_activity_max_traverse){
+                log.warn(String.format("当前灰名单activity:%s为已经寻找过%s次跳过寻找新的node...",activityIdentification, gray_activity_max_traverse));
+                gray_activity_record.addProperty(activityIdentification,browseCount-1);
+            }
+        }
+    }
+
+
+    /**
+     * 判断是否滑动到底部了
+     * @return
+     */
+    public void scrollToBottom(Rect rect){
+        Driver.scrollUp(rect);
+    }
+
+    /**
+     * 保存改页面是否可以滚动
+     * @param pageName
+     * @param rect
+     */
+    public void setPageScrollFlag(String pageName ,Rect rect){
+        if(this.pageScrollFlagCache==null){
+            this.pageScrollFlagCache = new HashMap<>();
+        }
+        this.pageScrollFlagCache.put(pageName,rect);
+    }
+
+
+
+    /**
+     * 判断页面是否能够滑动
+     * @return
+     */
+    public Rect getPageScrollFlg(String pageName){
+        return this.pageScrollFlagCache.get(pageName);
+    }
+
+    public void removeScrollFlag(String pageName){
+        this.pageScrollFlagCache.remove(pageName);
+    }
+
+    public static class Rect{
+        public int startX;
+        public int startY;
+        public int endX;
+        public int endY;
+        public Rect(int startX,int startY,int endX,int endY){
+            this.startX = startX;
+            this.startY = startY;
+            this.endX = endX;
+            this.endY = endY;
+        }
     }
 }
 

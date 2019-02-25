@@ -218,7 +218,7 @@ if [ -z "$1" ]; then
     echo "./runTest.sh appium 5 --- start 5 appium server"
     echo "./runTest.sh kill-appium --- kill all the appium process"
     echo "./runTest.sh download xes android  --- download android app for xes"
-    echo "./runTest.sh run xes ios udid 4723 config_xes.yml buildNumber --- run test for xes on ios with udid and appium port appium_port"
+    echo "./runTest.sh run xes ios udid 4723 config_xes.yml buildNumber --- run GraphLoopTest for xes on ios with udid and appium port appium_port"
     exit 0
 fi
 
