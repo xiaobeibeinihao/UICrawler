@@ -70,9 +70,6 @@ public class ConfigUtil {
 
     public static final String CAN_SCROLL_PAGE_XPATH="can_scrolled_page_xpath";
 
-    public static final String CAN_SCROLL_PAGES="can_scrolled_pages";
-
-    public static final String BOUNDS_PAGE_XPATH="bound_page_xpath";
 
 
     //GENERAL CONFIG ITEM

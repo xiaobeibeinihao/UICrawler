@@ -30,6 +30,7 @@ GENERAL:
   gray_activity_max_traverse: 2
   #灰名页面遍历自己遍历最大次数（单个页面进入死循环了）
   gray_activity_max_traverse_itself: 2
+  #用于判断该页面是否可以滚动
   can_scrolled_page_xpath: '(.//*[@scrollable="true"])'
 
 
@@ -51,14 +52,7 @@ CRITICAL_ELEMENT:
   ANDROID_PACKAGE: com.taobao.taobao
   ANDROID_MAIN_ACTIVITY: com.taobao.tao.welcome.Welcome
 
-
-
-#构建XPATH需要的一些内容
-  #UI底部TabBar
-#ANDROID_BOTTOM_TAB_BAR_ID: com.huxiu:id/footer_bar
-
-
-  #注意值要加引号'' ( (string-length(@text)<10  and string-length(@text)>1) or contains(@text,"允许")  or (string-length(@content-desc)<10 and string-length(@content-desc)>1)) '
+  #获取页面中的元素 注意值要加引号'' ( (string-length(@text)<10  and string-length(@text)>1) or contains(@text,"允许")  or (string-length(@content-desc)<10 and string-length(@content-desc)>1)) '
   ANDROID_CLICK_XPATH_HEADER: ' (string-length(@content-desc)<6 and string-length(@content-desc)>1) '
 
 LIST:
@@ -67,36 +61,6 @@ LIST:
   BACK_KEY_TRIGGER_LIST:
   - 我的账单
   - 订单详情
-
-  CAN_SCROOLED_PAGES:
-  - com.taobao.tao.mytaobao.MyTaoBaoActivity
-  - com.taobao.mytaobao.allapp.AllAppsActivity
-  can_scrolled_page_length: 2
-  #待输入文本的控制类型
-  INPUT_CLASS_LIST:
-  - android.widget.TextView
-  - XCUIElementTypeTextField
-  - XCUIElementTypeSecureTextField
-
-  #待输入的文本（随机选中后选列表中的一个）
-  INPUT_TEXT_LIST:
-  - '123'
-  - 'ABC'
-
-  #当发现App跳转到一下app时 会触发back键
-  PRESS_BACK_KEY_PACKAGE_LIST:
-  - 高德地图
-  - com.autonavi.minimap
-  - com.android.settings
-
-  #除了APP本身的包名外 根据以下包名判断是否跳出了APP,当app跳转到以下app时被认为是合法，会继续遍历操作
-  ANDROID_VALID_PACKAGE_LIST:
-  #- com.miui.securitycenter
-  #- com.android.server.telecom
-  #- com.lbe.security.miui
-  #- gallery
-  #- packageinstaller
-
 
   #白名单，遇到包含以下文本的控件，会多次点击（默认所有控件只点一次）
   ITEM_WHITE_LIST:
@@ -231,17 +195,6 @@ LIST:
   - 家庭主页
   - 我的通信
 
-
-
-
-
-    #手机状态栏
-  - XCUIElementTypeStatusBar
-  #键盘
-  - XCUIElementTypeKeyboard
-
-
-
   ANDROID_EXCLUDE_TYPE:
   #- android.widget.FrameLayout
   - android.widget.ImageButton
@@ -263,10 +216,5 @@ LIST:
   #Android
   - text
 
-
-
-#设备udid 对应的设备名称
-#d6744554:
-#  DEVICE_NAME: XiaoMi4
 
 
