@@ -130,7 +130,12 @@ public final class Driver {
     }
 
     public static String takeScreenShot(){
-        return  takeScreenShot(getScreenShortName());
+        try{
+            return  takeScreenShot(getScreenShortName());
+        }catch (Exception e){
+            return  null;
+        }
+
     }
 
     public static String takeScreenShot(String screenShotName) {
@@ -382,26 +387,32 @@ public final class Driver {
      * @param
      */
     public static void  scrollUp(XPathUtil.Rect rect) {
-        log.info(MyLogger.getMethodName());
-        int startX = (0 + (int)(portWidth * 0.5));
-        int startY = rect.endY;
-        int oldStartY = startY;
-        if(oldStartY > portHeight){
-            startY = portHeight-200;
+        try{
+            log.info(MyLogger.getMethodName());
+            int startX = (0 + (int)(portWidth * 0.5));
+            int startY = rect.endY;
+            int oldStartY = startY;
+            if(oldStartY > portHeight){
+                startY = portHeight-200;
+            }
+
+            int endX = startX;
+            int endY = portHeight-startY;
+            if(oldStartY < portHeight){
+                endY = startY;
+            }
+
+            log.info("scroll from : startX " +startX + ", startY "+ startY+ ", to  endX "+ endX+ ",endY "+ endY);
+            TouchAction touchAction = new TouchAction(driver);
+            PointOption pointStart = PointOption.point(startX,startY);
+            PointOption pointEnd = PointOption.point(endX,endX);
+            touchAction.press(pointStart).waitAction(WaitOptions.waitOptions(Duration.ofSeconds(1))).moveTo(pointEnd).release().perform();
+            log.info("scroll over" );
+        }catch (Exception e){
+            e.printStackTrace();
+            log.info("scroll fail" );
         }
 
-        int endX = startX;
-        int endY = portHeight-startY;
-        if(oldStartY < portHeight){
-            endY = startY;
-        }
-
-        log.info("scroll from : startX " +startX + ", startY "+ startY+ ", to  endX "+ endX+ ",endY "+ endY);
-        TouchAction touchAction = new TouchAction(driver);
-        PointOption pointStart = PointOption.point(startX,startY);
-        PointOption pointEnd = PointOption.point(endX,endX);
-        touchAction.press(pointStart).waitAction(WaitOptions.waitOptions(Duration.ofSeconds(1))).moveTo(pointEnd).release().perform();
-        log.info("scroll over" );
     }
 
     /**

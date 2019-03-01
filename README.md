@@ -11,10 +11,11 @@
 一、遍历算法
 
    深度优先遍历算法
+   ![](doc/数据结构.jpg)
 
 一、当前页面元素如何获取？
    
-   通过设置xpath来采集带有content-desc属性且值有文本的元素，
+   通过设置xpath来采集带有content-desc属性且值有文本的元素或者带有text属性且值有文本的元素，
    如果是imagebutton的话有这个熟悉且有文本就能被获取到，如果没有这个属性或者没有值就获取不到
    
 二、用什么来判断已经调转到另外一个页面？
@@ -73,8 +74,7 @@
 *        Android : 每秒采集一次CPU和Memory数据 生成perf_data.txt并写放到influxDB（需单添加-x参数，且influxDB要单独安装）
 
 ### 5.待开发功能
-* 报告中增加每个activity中click失败和成功的次数统计
-* 划动半屏，划动一屏
+* 生成diff报告
 
 
 
@@ -92,7 +92,6 @@
   * ANDROID_PACKAGE
   * ANDROID_MAIN_ACTIVITY
 
-  #### Monkey配置项可选， 详情见 [Monkey配置](https://github.com/lgxqf/UICrawler/blob/master/doc/Config.md#monkey%E5%8A%9F%E8%83%BD%E9%85%8D%E7%BD%AE)  
 
 ### 4.启动appium
 ```bash
@@ -212,3 +211,5 @@ Android 查看apk 和 Main activity
 * XpathTester https://www.freeformatter.com/xpath-tester.html
 * Appium并发测试 https://www.cnblogs.com/testway/p/6140594.html
 * Android 性能采集 https://blog.csdn.net/bigconvience/article/details/35553983
+
+1、web页面遍历

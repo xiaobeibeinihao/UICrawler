@@ -23,7 +23,7 @@ public class ConfigUtil {
     private static String port;
     private static ConfigUtil configUtil;
     private static Map<String,Object> configItems;
-    private static List<GoldPage> configListItems;
+    private static List<GoldPage> configGoldPageListItems;
     private static String rootDir;
     private static String outputDir;
     private static String serverIp = "0.0.0.0";
@@ -106,6 +106,7 @@ public class ConfigUtil {
     public static final String INPUT_CLASS_LIST = "INPUT_CLASS_LIST";
     public static final String INPUT_TEXT_LIST = "INPUT_TEXT_LIST";
     public static final String BACK_KEY_TRIGGER_LIST = "BACK_KEY_TRIGGER_LIST";
+    public static final String GRAB_KEYS = "GRAB_KEYS";
 
     public static final String CAPUTURE_ONLYONE_ON_WHITEPAGE = "caputure_onlyone_on_whitePage";
     public static final String NEED_SCROLLED_PAGE_XPATH = "need_scrolled_page_xpath";
@@ -184,10 +185,10 @@ public class ConfigUtil {
                             GoldPage goldPage = new GoldPage();
                             goldPage.pageName = goldName;
                             goldPage.goldItems = goldItems;
-                            if(configListItems==null){
-                                configListItems = new ArrayList<>();
+                            if(configGoldPageListItems ==null){
+                                configGoldPageListItems = new ArrayList<>();
                             }
-                            configListItems.add(goldPage);
+                            configGoldPageListItems.add(goldPage);
                         }
                     }
                 }
@@ -425,6 +426,14 @@ public class ConfigUtil {
     }
 
     public static  List<GoldPage> getGoldConfigPageAndItsItems(){
-        return configListItems;
+        return configGoldPageListItems;
+    }
+
+    /**
+     * 获取关键字 ，用来记录带有关键字页面并记录其路径
+     * @return
+     */
+    public static List<String> getGrabKeys(){
+        return getListValue(GRAB_KEYS);
     }
 }

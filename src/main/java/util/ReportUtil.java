@@ -45,6 +45,7 @@ public class ReportUtil {
         builder.append("<h1 align=\"center\">执行结果信息汇总 Testing result summary</h1>\n");
 
         addSummaryTable();
+        addKeyWordsTable();
         addDetailedTable();
 
         if(Util.isAndroid()) {
@@ -80,6 +81,22 @@ public class ReportUtil {
     private static void addDetailedTable(){
         generateTable("Crash信息 - Crash information",detailedList,"No crash found during testing.");
 
+    }
+
+    private static void addKeyWordsTable(){
+        if(XPathUtil.keyWordsRecords!= null && XPathUtil.keyWordsRecords.size()>0){
+            builder.append("<br/><h2>关键字-关键页面信息</h2>\n");
+            builder.append("<table width=\"100%\" border=\"1\" align=\"center\" cellspacing=\"1\">\n");
+            builder.append(" <tbody>\n");
+            for(String key: XPathUtil.keyWordsRecords.keySet()) {
+                builder.append(
+                        "    <tr>\n" +
+                                "        <td class=\"left\" width=\"50%\">"+"关键字看源码"+key+"</td>\n" +
+                                "        <td width=\"50%\">"+XPathUtil.keyWordsRecords.get(key)+"</td>\n" +
+                                "    </tr>\n");
+            }
+            builder.append(" </tbody>\n</table>\n");
+        }
     }
 
     private static void addClickedTable(){

@@ -8,6 +8,8 @@ import java.io.*;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Created by Ma Yi on 2017/5/27.
@@ -432,6 +434,18 @@ public final class Util {
 
     public static boolean isXpath(String xpath){
         return xpath.startsWith("//");
+    }
+
+
+
+    public static String getMatcher(String regex, String source) {
+                 String result = "";
+                 Pattern pattern = Pattern.compile(regex);
+                 Matcher matcher = pattern.matcher(source);
+                 while (matcher.find()) {
+                         result = matcher.group();
+                     }
+                 return result;
     }
 }
 

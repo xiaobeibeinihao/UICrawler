@@ -2,7 +2,7 @@
 #黄金页面的黄金元素
 GOLD_LIST:
   - { GOLD_PAGE: 闲鱼-闲置换钱,GOLD_ITEMS: [我的] }
-  - { GOLD_PAGE: 阿里众包,GOLD_ITEMS: [我的] }
+  - { GOLD_PAGE: 阿里众包,GOLD_ITEMS: [我的,个人简历] }
 GENERAL:
   #截屏数量
   SCREENSHOT_COUNT: 500
@@ -29,7 +29,7 @@ GENERAL:
   #灰名页面遍历的最大次数（两个页面进入循环）
   gray_activity_max_traverse: 2
   #灰名页面遍历自己遍历最大次数（单个页面进入死循环了）
-  gray_activity_max_traverse_itself: 2
+  gray_activity_max_traverse_itself: 6
   #用于判断该页面是否可以滚动
   can_scrolled_page_xpath: '(.//*[@scrollable="true"])'
 
@@ -52,8 +52,8 @@ CRITICAL_ELEMENT:
   ANDROID_PACKAGE: com.taobao.taobao
   ANDROID_MAIN_ACTIVITY: com.taobao.tao.welcome.Welcome
 
-  #获取页面中的元素 注意值要加引号'' ( (string-length(@text)<10  and string-length(@text)>1) or contains(@text,"允许")  or (string-length(@content-desc)<10 and string-length(@content-desc)>1)) '
-  ANDROID_CLICK_XPATH_HEADER: ' (string-length(@content-desc)<6 and string-length(@content-desc)>1) '
+  #获取页面中的元素 注意值要加引号'' ( (string-length(@text)<10  and string-length(@text)>2) or contains(@text,"允许")  or (string-length(@content-desc)<10 and string-length(@content-desc)>2)) '
+  ANDROID_CLICK_XPATH_HEADER: ' ((contains(@text,"个人简历")) or (string-length(@content-desc)<6 and string-length(@content-desc)>1) or  (string-length(@text)<6  and string-length(@text)>1))'
 
 LIST:
 
@@ -130,8 +130,8 @@ LIST:
   - 预约有礼
   - 咸鱼回收
   - 天猫无忧
-  - 我要卖车
-  - 我的爱车
+  #- 我要卖车
+  #- 我的爱车
   - 彩票助手
   - 租房
   - 领金币
@@ -179,21 +179,29 @@ LIST:
   - 斤
   - 卖
   - 买
-  - 个
   - 只
   - 颗
   - ¥
   - 送
   - 箱
   - 瓶
-
+  - 家具
+  - 衣服
+  - 待发货
+  - 待收货
+  - 待评价
+  - 待付款
+  - 全部
+  - 首页
+  - 任务
+  - 我的订单
+  - 查看全部订单
 
   #黑名单activity或者页面title
   black_pages:
-  - 反馈
   - 举报
   - 家庭主页
-  - 我的通信
+
 
   ANDROID_EXCLUDE_TYPE:
   #- android.widget.FrameLayout
@@ -208,13 +216,13 @@ LIST:
   - naf
   - content
 
-  #解释待续
-  STRUCTURE_NODE_NAME_EXCLUDE_LIST:
-  #- value
-  - name
 
-  #Android
-  - text
-
+  #需要抓取的关键字段，用于记录 点击路径
+  GRAB_KEYS:
+  - 花呗
+  - 借呗
+  - 芝麻
+  - 收货地址
+  - 交易记录
 
 

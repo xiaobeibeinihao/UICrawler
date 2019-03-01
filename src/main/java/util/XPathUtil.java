@@ -3,6 +3,7 @@ package util;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import io.appium.java_client.MobileElement;
+import org.apache.commons.collections.map.ListOrderedMap;
 import org.openqa.selenium.By;
 import org.slf4j.LoggerFactory;
 import org.w3c.dom.Document;
@@ -23,7 +24,8 @@ import java.util.*;
 
 public class XPathUtil {
     public static final int SLEEP_TIME = 4;//second
-    public static final int BACK_SLEEP_TIME = 2;
+    public static final int BACK_SLEEP_TIME = 1;
+    public static final String keyWordTip = "包含关键字";
     public static org.slf4j.Logger log = LoggerFactory.getLogger(XPathUtil_1_0.class);
     public static XPath xpath = XPathFactory.newInstance().newXPath();
     private static DocumentBuilderFactory builderFactory = DocumentBuilderFactory.newInstance();
@@ -87,12 +89,13 @@ public class XPathUtil {
         return monkeyClickedMap;
     }
 
+    public static Map<String, String> keyWordsRecords = (Map<String, String>) new ListOrderedMap();
+
 
     ////////////////////////
     private JsonObject traverse_route = new JsonObject();//node与click_path隐射
     private List<String> already_find_node = new ArrayList<String>();
     private JsonObject access_root_error_record = new JsonObject();//记录没有找到某个node对应的次数
-    private Set<String> traverse_track_record = new HashSet<>();//遍历路径记录
     private List<String> new_nodes = new ArrayList<>();
     private Node first_root_node = null;
     private String last_page_source = null;
@@ -1392,9 +1395,15 @@ public class XPathUtil {
 
             String xpath = pageNameAndXpath[1];
             MobileElement elem = Driver.findElementByXPath(xpath);
-            //记录遍历过的路径
-            traverse_track_record.add(clickPath);
-            nodeVisited.add(node);
+
+
+            String contentDesc = getContentDesc(xpath);
+            if(null == contentDesc || "".equals(contentDesc)){
+                nodeVisited.add(node);
+            }else{
+                nodeVisited.add(contentDesc);
+            }
+
             if(null == elem){
                 //继续遍历
                 log.info("---------Node not found in current UI!!!!!!! Stop current iteration.-----------" );
@@ -1407,6 +1416,20 @@ public class XPathUtil {
                     //说明点击无效 继续遍历
                     recursion(node);
                 }else{
+                    //判断是否 有我们需要的关键字段并记录，生成报告
+                    List<String> keyValues = ConfigUtil.getGrabKeys();
+                    String keywords = keyWordTip;
+                    if(keyValues!=null){
+                        for(String key:keyValues){
+                            if(current_page_source.contains(key)){
+                                keywords  = keywords +"====>>>"+key;
+                            }
+                        }
+                    }
+
+                    if(!keyWordTip.equals(keywords)){
+                        keyWordsRecords.put(current_page_source,keywords+"\n"+getTraverseRoute(node));
+                    }
                     //新的页面
                     newPageDeal(node,false);
                 }
@@ -1419,7 +1442,9 @@ public class XPathUtil {
         Iterator<String> iterator = nodesKey.iterator();
         while (iterator.hasNext()){
             String nodeStr = iterator.next();
-            if(!nodeVisited.contains(nodeStr)){
+            if(nodeVisited.contains(nodeStr) || nodeVisited.contains(getContentDesc(nodeStr))){
+               continue;
+            }else{
                 dfs(nodeStr);
                 return;
             }
@@ -1460,6 +1485,7 @@ public class XPathUtil {
     }
 
     private void newPageDeal(String node,boolean scrolled){
+        Driver.takeScreenShot();
         //新的页面
         new_nodes = findAllClickables(lastPageName,scrolled);
 
@@ -1528,7 +1554,9 @@ public class XPathUtil {
         Iterator<String> iterator = nodesKey.iterator();
         while (iterator.hasNext()){
             String nodeStr = iterator.next();
-            if(!nodeVisited.contains(nodeStr)){
+            if(nodeVisited.contains(nodeStr) || nodeVisited.contains(getContentDesc(nodeStr))){
+                continue;
+            }else{
                 dfs(nodeStr);
                 return;
             }
@@ -1538,6 +1566,19 @@ public class XPathUtil {
         if(rect==null){//不可以滚动
             doBackDFS(node);
         }else{//可以滚动
+            if(pageScrollTime.containsKey(currentPageName)){
+                int count = pageScrollTime.get(currentPageName);
+                if(count>=3){
+                    removeScrollFlag(currentPageName);
+                    //当前页面没有了，就返回继续迭代上一个页面的元素
+                    doBackDFS(node);
+                    return;
+                }else{
+                    pageScrollTime.put(currentPageName,count+1);
+                }
+            }else{
+                pageScrollTime.put(currentPageName,1);
+            }
             scrollToBottom(rect);
             lastPageName = currentPageName;
             currentPageName = Driver.getCurrentActivity();
@@ -1555,6 +1596,15 @@ public class XPathUtil {
                 newPageDeal(node,true);
             }
         }
+    }
+
+
+    private String getContentDesc(String xpath){
+        String contentDesc = Util.getMatcher( "@content-desc=\"\\S+\"",xpath);
+        if(contentDesc==null || "".equals(contentDesc)){
+            contentDesc = Util.getMatcher( "@text=\"\\S+\"",xpath);
+        }
+        return  contentDesc;
     }
 
     public void setFirstPageName(){
@@ -1579,7 +1629,7 @@ public class XPathUtil {
         lastPageName = currentPageName;
         currentPageName = activityIdentification;
         List<String> node_on_activity = new ArrayList<>();
-        List<String> node_on_activity_temp = new ArrayList<>();
+
 
         /////////////////////////////////1、页面级过滤
         if(pageContent==null){
@@ -1620,6 +1670,22 @@ public class XPathUtil {
             log.info(activityIdentification+"在黑名单中"+"--->返回");
             //Driver.pressBack();
             return  null;
+        }else  if(ConfigUtil.getGoldConfigPageAndItsItems()!=null  &&  ConfigUtil.getGoldConfigPageAndItsItems().size()>0){
+            boolean hasremovedGray = false;
+            for(ConfigUtil.GoldPage goldPage:ConfigUtil.getGoldConfigPageAndItsItems()){
+                if(current_page_source.contains(goldPage.pageName)){
+                    gray_activity_record.remove(currentPageName);
+                    gray_activity_record_itslef.remove(currentPageName);
+                    hasremovedGray = true;
+                }
+            }
+            if(!hasremovedGray){
+                if(judgeGrayActivity(activityNameBeforeClick,activityIdentification,scrooled)){
+                    log.info(activityIdentification+"在灰名单中"+"--->返回");
+                    return  null;
+                }
+            }
+
         }else if(judgeGrayActivity(activityNameBeforeClick,activityIdentification,scrooled)){
             log.info(activityIdentification+"在灰名单中"+"--->返回");
             return  null;
@@ -1645,28 +1711,25 @@ public class XPathUtil {
 
         /////////////////////////////////2、元素级过滤
         try {
-            node_on_activity_temp = getNodesFromFile(pageContent,activityIdentification);
+            final List<String>  node_on_activity_temp = getNodesFromFile(pageContent,activityIdentification);
             if(node_on_activity_temp==null){
                 node_on_activity =  node_on_activity_temp;
             }else{
                 //过滤黄金page的黄金item
                 if(ConfigUtil.getGoldConfigPageAndItsItems()!=null  &&  ConfigUtil.getGoldConfigPageAndItsItems().size()>0){
                     for(ConfigUtil.GoldPage goldPage:ConfigUtil.getGoldConfigPageAndItsItems()){
-                        if(current_page_source.contains(goldPage.pageName)){
+                        if(current_page_source.contains(goldPage.pageName) && goldPage.goldItems!=null){
                             for(String nodeStr:node_on_activity_temp){
-                                if(goldPage.goldItems!=null){
                                     for(String goldItem : goldPage.goldItems){
                                         if(nodeStr.contains(goldItem)){
                                             node_on_activity.add(nodeStr);
                                         }
                                     }
-                                }else{
-                                    node_on_activity =  node_on_activity_temp;
-                                }
                             }
-                        }else{
-                            node_on_activity =  node_on_activity_temp;
                         }
+                    }
+                    if(node_on_activity.size()==0){
+                        node_on_activity =  node_on_activity_temp;
                     }
                 }else{
                     node_on_activity =  node_on_activity_temp;
@@ -1908,14 +1971,8 @@ public class XPathUtil {
         }
 
         for(String oneBlackPage:blackPages){
-            if(pageActivity.toLowerCase().contains(oneBlackPage.toLowerCase())){
-                return true;
-            }
-        }
-
-
-        for(String oneBlackPage:blackPages){
             if(pageContent.toLowerCase().contains(oneBlackPage.toLowerCase())){
+                log.info("===============blackPage is  "+oneBlackPage +"返回");
                 return true;
             }
         }
@@ -2088,6 +2145,7 @@ public class XPathUtil {
             this.endY = endY;
         }
     }
+
 }
 
 

@@ -333,7 +333,7 @@ public class CrawlerNew {
 
         try {
             //等待App完全启动,否则遍历不到元素
-            Driver.sleep(10);
+            Driver.sleep(5);
             if (commandLine.hasOption("e") && Util.isAndroid()) {
                 PerfUtil.writeDataToFileAsync(crawlerNew.writeToDB);
             }
@@ -384,10 +384,6 @@ public class CrawlerNew {
         Driver.sleep(5);
 
         PerfUtil.stop();
-
-        if (commandLine.hasOption("e") && !Util.isAndroid()) {
-            Driver.stopPerfRecordiOS();
-        }
 
         executeTask();
 
